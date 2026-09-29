@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment & uv
+.venv/
+venv/
+ENV/
+.env
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+report.xml
+
+# Linters
+.ruff_cache/
+.mypy_cache/
+
+# Databases & local storage
+*.db
+*.sqlite3
+postgres_data/
+redis_data/
+
+# IDEs & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

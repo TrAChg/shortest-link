@@ -1,0 +1,1 @@
+"""ShortestLink package."""
