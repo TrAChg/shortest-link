@@ -14,9 +14,10 @@ from src.config import get_settings
 settings = get_settings()
 
 # Create Async Engine
+# manages connection pool (doesn't have to reconnect every single click)
 engine: AsyncEngine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=settings.DEBUG,  # print raw SQL in terminal
     future=True,
 )
 

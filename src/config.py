@@ -1,5 +1,4 @@
-"""Application configuration using Pydantic Settings.
-
+"""
 Reads settings from environment variables or .env file.
 """
 
@@ -11,17 +10,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Central configuration for ShortestLink."""
 
-    APP_NAME: str = "ShortestLink"
-    ENVIRONMENT: str = "development"
-    DEBUG: bool = True
-    BASE_URL: str = "http://localhost:8000"
+    APP_NAME: str = "ShortestLink"  # Default, can change in .env
+    ENVIRONMENT: str = "development"  # Default
+    DEBUG: bool = True  # Default
+    BASE_URL: str = "http://localhost:8000"  # Default
 
-    DATABASE_URL: str = "sqlite+aiosqlite:///./test.db"
-    REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_TTL_SECONDS: int = 86400
+    DATABASE_URL: str = "sqlite+aiosqlite:///./test.db"  # Default
+    REDIS_URL: str = "redis://localhost:6379/0"  # Default
+    REDIS_TTL_SECONDS: int = 86400  # Default
 
-    DEFAULT_CODE_LENGTH: int = 6
-    MAX_CUSTOM_ALIAS_LENGTH: int = 30
+    DEFAULT_CODE_LENGTH: int = 6  # Default
+    MAX_CUSTOM_ALIAS_LENGTH: int = 30  # Default
 
     model_config = SettingsConfigDict(
         env_file=".env",

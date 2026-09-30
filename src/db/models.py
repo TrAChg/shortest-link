@@ -9,23 +9,17 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 class Base(DeclarativeBase):
     """Base declarative class for all SQLAlchemy models."""
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    def __repr__(self) -> str:
+        return f"Infor {self.__class__.__name__}(id = {self.id})"
+
 
 class URL(Base):
-    """Represents a shortened URL and its metadata.
-
-    Attributes:
-        id: Primary key (auto-incrementing integer).
-        original_url: The destination target URL.
-        short_code: Unique alphanumeric alias (Base62 or custom).
-        is_custom: True if the alias was requested by the user.
-        is_active: Can be toggled to disable a link without deletion.
-        created_at: Creation timestamp with timezone.
-        expires_at: Optional expiration timestamp.
-    """
+    """Represents a shortened URL."""
 
     __tablename__ = "urls"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     original_url: Mapped[str] = mapped_column(Text, nullable=False)
     short_code: Mapped[str] = mapped_column(
         String(32), unique=True, index=True, nullable=False
@@ -39,27 +33,17 @@ class URL(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    # Relationships
+    # Relationships cascade: automatically clean up
     analytics: Mapped[list["ClickAnalytics"]] = relationship(
         "ClickAnalytics", back_populates="url", cascade="all, delete-orphan"
     )
 
 
 class ClickAnalytics(Base):
-    """Records individual redirection events for metrics and auditing.
-
-    Attributes:
-        id: Primary key.
-        url_id: Foreign key pointing to urls.id.
-        clicked_at: Timestamp of the click event.
-        ip_address: Client IP address (anonymized if needed).
-        user_agent: Browser / client user-agent string.
-        referrer: Referrer header (where the click originated).
-    """
+    """Records individual redirection events for metrics and auditing."""
 
     __tablename__ = "click_analytics"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     url_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("urls.id", ondelete="CASCADE"), nullable=False, index=True
     )
