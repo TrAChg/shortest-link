@@ -1,103 +1,118 @@
 """Core business logic for URL shortening, redirection, and analytics."""
 
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import URL
-from src.schemas.url import URLAnalyticsResponse, URLCreate
+from src.core.base62 import encode_base62
+from src.db.models import URL, ClickAnalytics
+from src.schemas.url import (
+    ClickEventSchema,
+    URLAnalyticsResponse,
+    URLCreate,
+)
 
 
 class ShortenerService:
     """Orchestrates database operations and Base62 encoding for short links."""
 
-    @staticmethod
-    async def create_short_url(db: AsyncSession, payload: URLCreate) -> URL:
-        """Creates a new short link in the database.
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
 
-        If custom_alias is provided:
-            1. Verify it does not already exist in the database.
-            2. If it exists, raise an error (e.g. ValueError or HTTPException 409).
-            3. If free, save with short_code = custom_alias and is_custom = True.
+    async def create_short_url(self, payload: URLCreate) -> URL:
+        """Creates a new short link in the database."""
+        if payload.custom_alias:
+            short_link = payload.custom_alias
+            find = await self.db.execute(
+                select(URL).where(URL.short_code == short_link)
+            )
+            existing_url = find.scalar_one_or_none()
+            if existing_url is not None:
+                raise ValueError("Found another short-link in db")
+            else:
+                new_url = URL(
+                    original_url=str(payload.url), short_code=short_link, is_custom=True
+                )
+                self.db.add(new_url)
+                await self.db.commit()
+                await self.db.refresh(new_url)
+        else:
+            expires_at = None
+            if payload.expires_in_days:
+                expires_at = datetime.now(UTC) + timedelta(days=payload.expires_in_days)
+            new_url = URL(
+                original_url=str(payload.url),
+                short_code="",
+                is_custom=False,
+                expires_at=expires_at,
+            )
+            self.db.add(new_url)
+            await (
+                self.db.flush()
+            )  # Tell db to generate key ID without finalizing the transaction
+            new_url.short_code = encode_base62(new_url.id)
+            await self.db.commit()
+            await self.db.refresh(new_url)
+        return new_url
 
-        If custom_alias is NOT provided:
-            1. Insert the URL record with a temporary placeholder or compute next ID.
-            2. Convert the auto-increment ID to Base62 using `encode_base62(url.id)`.
-            3. Update the record with the generated short_code.
-
-        Args:
-            db: Active async database session.
-            payload: Validated URLCreate schema.
-
-        Returns:
-            The newly created URL ORM instance.
-
-        TODO (Student):
-            Implement the creation workflow, commit to DB, and return the URL object.
-        """
-        raise NotImplementedError(
-            "TODO: Implement create_short_url business logic yourself!"
+    async def get_target_url(self, short_code: str) -> str | None:
+        """Finds target URL by short code, checking expiration and active status."""
+        find = await self.db.execute(
+            select(URL).where(URL.short_code == short_code, URL.is_active)
         )
+        exist_url = find.scalar_one_or_none()
+        if exist_url is not None and (
+            exist_url.expires_at is None or exist_url.expires_at >= datetime.now(UTC)
+        ):
+            return str(exist_url.original_url)
+        return None
 
-    @staticmethod
-    async def get_target_url(db: AsyncSession, short_code: str) -> str | None:
-        """Finds target URL by short code, checking expiration and active status.
-
-        Args:
-            db: Active async database session.
-            short_code: The code to look up.
-
-        Returns:
-            The original destination URL if valid and active; None otherwise.
-
-        TODO (Student):
-            1. Query URL model where short_code == short_code and is_active == True.
-            2. Check if expires_at is set and in the past.
-            3. Return url.original_url or None.
-        """
-        raise NotImplementedError(
-            "TODO: Implement get_target_url lookup logic yourself!"
-        )
-
-    @staticmethod
     async def record_click(
-        db: AsyncSession,
+        self,
         short_code: str,
         ip_address: str | None = None,
         user_agent: str | None = None,
         referrer: str | None = None,
     ) -> None:
-        """Asynchronously persists a click event into the click_analytics table.
+        """Asynchronously persists a click event into the click_analytics table."""
+        find = await self.db.execute(select(URL).where(URL.short_code == short_code))
+        exist_url = find.scalar_one_or_none()
+        if exist_url is not None:
+            new_analytic = ClickAnalytics(
+                url_id=exist_url.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                referrer=referrer,
+            )
+            self.db.add(new_analytic)
+            await self.db.commit()
 
-        Args:
-            db: Active async database session.
-            short_code: The short code that was visited.
-            ip_address: Client IP address.
-            user_agent: Client User-Agent header.
-            referrer: Client Referrer header.
+    async def get_analytics(self, short_code: str) -> URLAnalyticsResponse:
+        """Retrieves total clicks count and recent click records for a short link."""
+        find = await self.db.execute(select(URL).where(URL.short_code == short_code))
+        exist_url = find.scalar_one_or_none()
+        if exist_url is not None:
+            query_total = select(func.count(ClickAnalytics.id)).where(
+                ClickAnalytics.url_id == exist_url.id
+            )
+            total_clicks = (await self.db.execute(query_total)).scalar() or 0
+            recent_query = (
+                select(ClickAnalytics)
+                .where(ClickAnalytics.url_id == exist_url.id)
+                .order_by(ClickAnalytics.clicked_at.desc())
+                .limit(10)
+            )
+            db_clicks = (await self.db.execute(recent_query)).scalars().all()
+            recent_clicks = [ClickEventSchema.model_validate(c) for c in db_clicks]
 
-        TODO (Student):
-            1. Find the URL record corresponding to short_code.
-            2. Insert ClickAnalytics(url_id=url.id, ip_address=ip_address, ...).
-            3. Commit transaction.
-        """
-        raise NotImplementedError(
-            "TODO: Implement record_click analytics logging yourself!"
-        )
-
-    @staticmethod
-    async def get_analytics(db: AsyncSession, short_code: str) -> URLAnalyticsResponse:
-        """Retrieves total clicks count and recent click records for a short link.
-
-        Args:
-            db: Active async database session.
-            short_code: The short code to analyze.
-
-        Returns:
-            URLAnalyticsResponse with aggregate metrics.
-
-        TODO (Student):
-            1. Query URL model for short_code.
-            2. Count total rows in click_analytics for this url_id.
-            3. Query the 10 most recent click records.
-            4. Construct and return URLAnalyticsResponse.
-        """
-        raise NotImplementedError("TODO: Implement get_analytics reporting yourself!")
+            return URLAnalyticsResponse(
+                short_code=short_code,
+                original_url=exist_url.original_url,
+                total_clicks=total_clicks,
+                created_at=exist_url.created_at,
+                expires_at=exist_url.expires_at,
+                recent_clicks=recent_clicks,
+            )
+        else:
+            raise ValueError("No url found.")

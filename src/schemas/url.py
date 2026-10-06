@@ -6,32 +6,23 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 class URLCreate(BaseModel):
-    """Payload for creating a new short link."""
+    """Creating a new short link."""
 
-    url: HttpUrl = Field(
-        ...,
-        description="The target destination URL to shorten. Must include http:// or https://",
-        examples=["https://deepmind.google/technologies/gemini/"],
-    )
+    url: HttpUrl = Field(..., description="Must include http:// or https://")
     custom_alias: str | None = Field(
         None,
         min_length=3,
         max_length=30,
         pattern=r"^[a-zA-Z0-9_-]+$",
-        description="Optional custom alphanumeric alias for the link.",
-        examples=["gemini-overview"],
+        description="It's your custom link.",
     )
     expires_in_days: int | None = Field(
-        None,
-        ge=1,
-        le=365,
-        description="Optional link validity duration in days.",
-        examples=[30],
+        None, ge=1, le=365, description="Validity duration in days."
     )
 
 
 class URLResponse(BaseModel):
-    """API response after successfully creating or retrieving a link."""
+    """API response after successfully creating link."""
 
     short_code: str = Field(..., description="Unique alphanumeric short code")
     short_url: str = Field(..., description="Full clickable short URL")
@@ -54,7 +45,7 @@ class ClickEventSchema(BaseModel):
 
 
 class URLAnalyticsResponse(BaseModel):
-    """Aggregate statistics and click history for a short link."""
+    """Click history for a short link."""
 
     short_code: str
     original_url: str
