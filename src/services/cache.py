@@ -10,7 +10,7 @@ settings = get_settings()
 class CacheService:
     """Manages Redis cache-aside operations for short links."""
 
-    def __init__(self, redis_url: str = settings.REDIS_URL):
+    def __init__(self, redis_url: str = settings.REDIS_URL) -> None:
         self.redis_url = redis_url
         self.client: aioredis.Redis | None = None
 
@@ -27,20 +27,20 @@ class CacheService:
             await self.client.close()
 
     async def get_url(self, short_code: str) -> str | None:
-        """Fetches target destination URL from Redis cache.
-
-        Args:
-            short_code: The alphanumeric short code (e.g. 'wCg').
-
-        Returns:
-            The cached original URL string, or None on cache miss.
-
-        TODO (Student):
-            1. Ensure client is connected.
-            2. Query key `f"shortlink:code:{short_code}"`.
-            3. Return string value or None.
-        """
-        raise NotImplementedError("TODO: Implement get_url cache lookup yourself!")
+        """Fetches target destination URL from Redis cache."""
+        try:
+            if not self.client:
+                await self.connect()
+            if self.client:
+                val = await self.client.get(f"shortlink:code:{short_code}")
+                if isinstance(val, bytes):
+                    return val.decode("utf-8")
+                if isinstance(val, str):
+                    return val
+                return None
+        except (aioredis.RedisError, OSError):
+            return None
+        return None
 
     async def set_url(
         self,
@@ -48,18 +48,18 @@ class CacheService:
         target_url: str,
         ttl_seconds: int = settings.REDIS_TTL_SECONDS,
     ) -> None:
-        """Stores a short code to target URL mapping in Redis with TTL.
-
-        Args:
-            short_code: The alphanumeric short code.
-            target_url: Destination URL.
-            ttl_seconds: Cache expiration in seconds (default: 24h).
-
-        TODO (Student):
-            1. Ensure client is connected.
-            2. Set key `f"shortlink:code:{short_code}"` with ex=ttl_seconds.
-        """
-        raise NotImplementedError("TODO: Implement set_url cache persistence yourself!")
+        """Stores a short code to target URL mapping in Redis with TTL."""
+        try:
+            if not self.client:
+                await self.connect()
+            if self.client:
+                await self.client.set(
+                    f"shortlink:code:{short_code}",
+                    target_url,
+                    ex=ttl_seconds,
+                )
+        except (aioredis.RedisError, OSError):
+            pass
 
     async def invalidate(self, short_code: str) -> None:
         """Removes a short code from Redis cache upon deletion or expiration."""

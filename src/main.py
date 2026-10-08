@@ -52,12 +52,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Register API routes
-    app.include_router(api_router)
-
     @app.get("/health", tags=["Health"])
     async def health_check() -> dict[str, str]:
         return {"status": "healthy", "service": settings.APP_NAME}
+
+    # Register API routes (including wildcard /{short_code})
+    app.include_router(api_router)
 
     return app
 

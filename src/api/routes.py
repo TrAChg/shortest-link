@@ -1,12 +1,14 @@
 """FastAPI route handlers for URL Shortening, Redirection, and Analytics."""
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-from src.db.session import get_db
+from src.db.session import AsyncSessionLocal, get_db
 from src.schemas.url import URLAnalyticsResponse, URLCreate, URLResponse
+from src.services.cache import cache_service
+from src.services.shortener import ShortenerService
 
 router = APIRouter()
 settings = get_settings()
@@ -22,17 +24,36 @@ async def shorten_url(
     payload: URLCreate,
     db: AsyncSession = Depends(get_db),
 ) -> URLResponse:
-    """Creates a short link for the specified URL.
+    """Creates a short link for the specified URL."""
+    services = ShortenerService(db)
+    try:
+        new_short_url = await services.create_short_url(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    return URLResponse(
+        short_code=new_short_url.short_code,
+        short_url=f"{settings.BASE_URL}/{new_short_url.short_code}",
+        original_url=new_short_url.original_url,
+        created_at=new_short_url.created_at,
+        expires_at=new_short_url.expires_at,
+    )
 
-    - Validates target URL.
-    - Generates Base62 code or assigns custom alias.
-    - Saves to PostgreSQL and warms Redis cache.
 
-    TODO (Student):
-        1. Call ShortenerService.create_short_url(db, payload).
-        2. Construct and return URLResponse with full clickable short_url.
-    """
-    raise NotImplementedError("TODO: Implement /api/v1/shorten endpoint yourself!")
+async def _log_click_in_background(
+    short_code: str,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    referrer: str | None = None,
+) -> None:
+    """Background task to record click analytics in an isolated DB session."""
+    async with AsyncSessionLocal() as session:
+        service = ShortenerService(session)
+        await service.record_click(
+            short_code=short_code,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            referrer=referrer,
+        )
 
 
 @router.get(
@@ -47,20 +68,29 @@ async def redirect_to_target(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
-    """Redirects the client to the target URL using HTTP 307.
-
-    Redirection sequence:
-    1. Check Redis cache first.
-    2. On cache miss, query PostgreSQL database.
-    3. If found in DB, populate Redis cache.
-    4. Enqueue background task to log click analytics (IP, Referrer, User-Agent).
-    5. If not found or expired, raise HTTPException(404).
-
-    TODO (Student):
-        Implement the cache-aside check and return RedirectResponse(url=target_url, status_code=307).
-    """
-    raise NotImplementedError(
-        "TODO: Implement /{short_code} redirection endpoint yourself!"
+    """Redirects the client to the target URL using HTTP 307."""
+    service = ShortenerService(db)
+    target_url = await cache_service.get_url(short_code)
+    if not target_url:
+        target_url = await service.get_target_url(short_code)
+        if not target_url:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Short link not found or has expired",
+            )
+        await cache_service.set_url(short_code, target_url)
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    referrer = request.headers.get("referer")
+    background_tasks.add_task(
+        _log_click_in_background,
+        short_code=short_code,
+        ip_address=client_ip,
+        user_agent=user_agent,
+        referrer=referrer,
+    )
+    return RedirectResponse(
+        url=target_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
     )
 
 
@@ -74,11 +104,11 @@ async def get_url_analytics(
     short_code: str,
     db: AsyncSession = Depends(get_db),
 ) -> URLAnalyticsResponse:
-    """Returns total click count and recent access history for a short code.
+    """Returns total click count and recent access history for a short code."""
+    service = ShortenerService(db)
+    try:
+        analytics = await service.get_analytics(short_code)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
-    TODO (Student):
-        1. Call ShortenerService.get_analytics(db, short_code).
-        2. If link does not exist, raise HTTPException(404).
-        3. Return URLAnalyticsResponse.
-    """
-    raise NotImplementedError("TODO: Implement analytics endpoint yourself!")
+    return analytics
