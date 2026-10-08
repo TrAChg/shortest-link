@@ -26,27 +26,6 @@ It provides sub-millisecond redirection via an in-memory Redis cache-aside patte
 
 ---
 
-## System Architecture
-
-```mermaid
-flowchart TD
-    User([Client / Browser]) -->|GET /{short_code}| Router[FastAPI Redirection Engine]
-    Router -->|1. Check RAM| Cache[(Redis Cache)]
-
-    Cache -->|Cache Hit < 1ms| Redirect[HTTP 307 Redirect]
-    Cache -->|Cache Miss| DB[(PostgreSQL / SQLite)]
-
-    DB -->|Found Target URL| WarmCache[Populate Redis with TTL]
-    WarmCache --> Redirect
-    DB -->|Not Found / Expired| NotFound[HTTP 404 Not Found]
-
-    Redirect --> BG[BackgroundTasks]
-    BG -.->|Async Fire-and-Forget| Analytics[(Click Analytics Table)]
-    Redirect -->|Instant Location Header| User
-```
-
----
-
 ## Quickstart & How to Run
 
 ### Option 1: Run with Docker Compose (Recommended)
